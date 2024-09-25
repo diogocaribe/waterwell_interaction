@@ -1,0 +1,5 @@
+<RCC>
+    <qresource prefix="/plugins/waterwell_interaction" >
+        <file>icon.png</file>
+    </qresource>
+</RCC>
