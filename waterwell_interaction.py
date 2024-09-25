@@ -23,13 +23,20 @@
 """
 from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication
 from qgis.PyQt.QtGui import QIcon
-from qgis.PyQt.QtWidgets import QAction
+from qgis.PyQt.QtWidgets import QAction, QDialog, QVBoxLayout, QLabel, QSpinBox, QDoubleSpinBox,QPushButton, QLineEdit
 
 # Initialize Qt resources from file resources.py
 from .resources import *
 # Import the code for the dialog
 from .waterwell_interaction_dialog import waterwell_interactionDialog
 import os.path
+
+from qgis.core import QgsProject, QgsRasterLayer 
+from osgeo import gdal 
+import os 
+import numpy as np 
+import matplotlib.pyplot as plt 
+import datetime
 
 
 class waterwell_interaction:
@@ -198,3 +205,135 @@ class waterwell_interaction:
             # Do something useful here - delete the line containing pass and
             # substitute with your code.
             pass
+
+class GroundwaterModelDialog(QDialog): 
+
+    def __init__(self):
+        super().init_()
+        self.setWindowTitle('Modelo de Interferência Poço-Rio') 
+        self.layout=QVBoxLayout() 
+
+        # Criando os widgets de entrada 
+        self.input_widgets={
+        'Transmissividade (T) [m^2/dia]':QSpinBox(), 
+        'Armazenámento específico (S)': QDoubleSpinBox(), 
+        'Vazão do Poço (Q) [m3/dia]': QDoubleSpinBox(), 
+        'Condutância do Rio (C  r) [1/dia]': QDoubleSpinBox(), 
+        'Tempo de Simulação (dias)': QSpinBox(), 
+        'Distância Total (L)[m]':QSpinBox(), 
+        'Quadrícula de Resolução (dx) [m]': QDoubleSpinBox(),
+        'Nível do Rio (hrio) [m]': QDoubleSpinBox() 
+        }
+
+        # Configurando valores iniciais e limites para os widgets 
+        self.input_widgets['Transmissividade (T) [m^2/dia]'].setRange(0,1000)
+        self.input_widgets['Transmissividade (T) [m^2/dia]'].setValue(50)
+        self.input_widgets['Armazenamento específico (S)'].setRange(0,1)
+        self.input_widgets['Armazenamento específico (S)'].setValue(0.1)
+        self.input_widgets['Armazenamento específico (S)'].setSingleStep(0.01)
+        self.input_widgets['Vazão do Poço (Q) [m3/dia]'].setRange(0,1000)
+        self.input_widgets['Vazão do Poço (Q)[m3/dia]'].setValue(100)
+        self.input_widgets['Condutância do Rio (C_r) [1/dia]'].setRange(0,10) 
+        self.input_widgets['Condutância do Rio (C_r) [1/dia]'].setValue(0.05)
+        self.input_widgets['Condutância do Rio (C_r) [1/dia]'].setSingleStep(0.01)
+        self.input_widgets['Tempo de Simulação (dias)'].setRange(1, 1000)
+        self.input_widgets['Tempo de Simulação (dias)'].setValue(200)
+        self.input_widgets['Distância Total (L)[m]'].setRange(100, 10000)
+        self.input_widgets['Distância Total(L)[m]'].setValue(1000)
+        self.input_widgets['Quadrícula de Resolução (dx) [m]'].setRange(1,100) 
+        self.input_widgets['Quadrícula de Resolução (dx) [m]'].setValue(1,100) 
+        self.input_widgets['Nível do Rio (h  rio)[m]'].setRange(0,100)
+        self.input_widgets['Nível do Rio (h  rio)[m]'].setValue(10)
+
+        # Adicionando os widgets ao layout 
+
+        for label, widget in self.input_widgets.items():
+            self.layout.addWidget(QLabel(label))
+            self.layout.addWidget(widget)
+        
+        # Campo de entrada para o nome da camada 
+
+        self.layer_name_input=QLineEdit(f'Camada{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}')
+
+        self.layout.addWidget(QLabel("Nome da Camada:"))
+        self.layout.addWidget(self.layer_name_input)
+
+        # Botão para executar o modelo 
+        self.run_button = QPushButton('Executar Modelo') 
+        self.run_button.clicked.connect(self.run_model) 
+        self.layout.addWidget(self.run_button) 
+        self.setLayout(self.layout)
+
+        def run_model(self):
+            # Coletando os parâmetros da interface 
+            T=self.input_widgets['Transmissividade (T) [m^2/dia]'].value()
+            S=self.input_widgets['Armazenamento específico (S)'].value()
+            Q = self.input_widgets['Vazão do Poço (Q)[m3/dia]'].value()
+            C_r=self.input_widgets['Condutância do Rio (C_r) [1/dia]'].value()
+            tempo_simulacao=self.input_widgets['Tempo de Simulação (dias)'].value()
+            L=self.input_widgets['Distância Total (L) [m]'].value()
+            dx = self.input_widgets['Quadrícula de Resolução (dx) [m]'].value()
+            h_rio = self.input_widgets['Nível do Rio (hrio) [m]'].value()            
+
+            # Posições do poço e do rio 
+            pos_poco = 2 # Localização do poço no meio 
+
+            pos_rio= L//3 # Localização do rio a 1/3 da distância total
+
+            # Inicialização das variáveis 
+
+            h=np.Zeros(n)
+
+            # Loop de simulação 
+
+            for t in range(tempo_simulacao): 
+                h_new=h.copy()
+
+            for i in range(1, n-1):
+                # Termo de bómbeamento no poço 
+                h_new[int(pos_poco/dx)]-=Q/S
+            
+            # Condição de contorno no rio
+            h_new[int(pos_rio/dx)]+=C_r*(h_rio-h[int(pos_rio/dx)]) 
+
+            h=h_new 
+
+            # Exportando os resultados para um raster 
+
+            layer_name=self.layer_name_input.text()
+
+            self.export_to_raster(h,L,dx,layer_name) 
+
+            # Exibindo o gráfico dos resultados 
+
+            self.plot_results(h,L)
+
+        def plot_results(self,h,L): 
+            plt.plot(np.linspace(o,L,len(h)),h)
+            plt.xlabel('Distância [m]')
+            plt.ylabel('Nível do lençol freático [m]') 
+            plt.title('Interferência do poço no lençol freático próximo a um rio') 
+            plt.grid(True)
+            plt.show() 
+        
+        def export_to_raster(self,h, L, dx, layer_name):
+            # Configurando o raster 
+            cols=len(h)
+            rows=1   
+            output_path = os.path.join(QgsProject.instance().homePath(),f'{layer_name}.tif')
+            driver =gdal.GetDriverByName('GTiff') 
+            out_raster = driver.Create(output_path,cols,rows,1,gdal.GDT_Float32) 
+            out_raster.SetGeoTransform((0,pixelsize,0,0,0,-pixel_size)) 
+            outband = out_raster.GetRasterBand(1) 
+            outband.WriteArray(np.array([h]))
+            outband.FlushCache() 
+
+            # Definindo a projeção (supondo coordenadas arbitrárias) 
+            out_raster.SetProjection('LOCAL_CS["arbitrary"]') 
+            outband=None 
+            out_raster=None 
+            # Adicionando o raster ao projeto QGIS 
+            rasterlayer=QgsRasterLayer(output_path, layer_name, 'gdal') 
+            QgsProject.instance().addMapLayer(rasterlayer)
+
+
